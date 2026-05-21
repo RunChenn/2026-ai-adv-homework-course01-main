@@ -14,35 +14,37 @@ createApp({
 
     const statusMap = {
       pending: { label: '待付款', cls: 'bg-apricot/20 text-apricot' },
-      paid: { label: '已付款', cls: 'bg-sage/20 text-sage' },
-      failed: { label: '付款失敗', cls: 'bg-red-100 text-red-600' },
+      paid:    { label: '已付款', cls: 'bg-sage/20 text-sage' },
+      failed:  { label: '付款失敗', cls: 'bg-red-100 text-red-600' },
     };
 
     const paymentMessages = {
-      success: { text: '付款成功！感謝您的購買。', cls: 'bg-sage/10 text-sage border border-sage/20' },
-      failed: { text: '付款失敗，請重試。', cls: 'bg-red-50 text-red-600 border border-red-100' },
-      cancel: { text: '付款已取消。', cls: 'bg-apricot/10 text-apricot border border-apricot/20' },
+      success: { text: '付款成功！感謝您的購買。',  cls: 'bg-sage/10 text-sage border border-sage/20' },
+      failed:  { text: '付款失敗，請重試。',        cls: 'bg-red-50 text-red-600 border border-red-100' },
+      cancel:  { text: '付款已取消。',              cls: 'bg-apricot/10 text-apricot border border-apricot/20' },
     };
 
-    async function simulatePay(action) {
+    async function goToEcpay() {
       if (!order.value || paying.value) return;
       paying.value = true;
       try {
-        const res = await apiFetch('/api/orders/' + order.value.id + '/pay', {
-          method: 'PATCH',
-          body: JSON.stringify({ action })
+        const res = await apiFetch('/api/orders/' + order.value.id + '/ecpay-form', {
+          method: 'POST',
         });
-        order.value = res.data;
-        paymentResult.value = action === 'success' ? 'success' : 'failed';
+        // 將 ECPay 自動送出的 HTML form 插入 DOM 讓瀏覽器自動跳轉
+        const container = document.createElement('div');
+        container.style.display = 'none';
+        container.innerHTML = res.data.html;
+        document.body.appendChild(container);
+        // form 內的 <script> 會自動送出，若瀏覽器安全政策阻擋則手動送出
+        const form = container.querySelector('form');
+        if (form) form.submit();
       } catch (e) {
-        Notification.show('付款處理失敗', 'error');
-      } finally {
+        Notification.show('無法產生付款表單，請稍後再試', 'error');
         paying.value = false;
       }
+      // 跳轉後不 reset paying，避免使用者誤按
     }
-
-    function handlePaySuccess() { simulatePay('success'); }
-    function handlePayFail() { simulatePay('fail'); }
 
     onMounted(async function () {
       try {
@@ -55,6 +57,6 @@ createApp({
       }
     });
 
-    return { order, loading, paying, paymentResult, statusMap, paymentMessages, handlePaySuccess, handlePayFail };
+    return { order, loading, paying, paymentResult, statusMap, paymentMessages, goToEcpay };
   }
 }).mount('#app');

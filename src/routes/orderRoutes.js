@@ -2,6 +2,13 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../database');
 const authMiddleware = require('../middleware/authMiddleware');
+const {
+  generateEcpayForm,
+  getTaiwanDateString,
+  STAGE_CHECKOUT_URL,
+  PROD_CHECKOUT_URL,
+  isProduction,
+} = require('../ecpay');
 
 const router = express.Router();
 
@@ -227,6 +234,84 @@ router.get('/', (req, res) => {
     error: null,
     message: '成功'
   });
+});
+
+/**
+ * @openapi
+ * /api/orders/{id}/ecpay-form:
+ *   post:
+ *     summary: 產生 ECPay 信用卡付款表單
+ *     tags: [Orders]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: 回傳自動送出的 HTML form 字串
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     html:
+ *                       type: string
+ *                 error:
+ *                   type: string
+ *                   nullable: true
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: 訂單狀態不是 pending
+ *       404:
+ *         description: 訂單不存在
+ */
+router.post('/:id/ecpay-form', (req, res) => {
+  const order = db.prepare('SELECT * FROM orders WHERE id = ? AND user_id = ?').get(req.params.id, req.user.userId);
+
+  if (!order) {
+    return res.status(404).json({ data: null, error: 'NOT_FOUND', message: '訂單不存在' });
+  }
+
+  if (order.status !== 'pending') {
+    return res.status(400).json({ data: null, error: 'INVALID_STATUS', message: '只有待付款訂單才能前往付款' });
+  }
+
+  const items = db.prepare('SELECT product_name FROM order_items WHERE order_id = ?').all(order.id);
+  const itemName = items.map(i => i.product_name).join('#').slice(0, 200);
+
+  // MerchantTradeNo：UUID hex 取前 20 碼（0-9a-f，永久唯一）
+  const tradeNo = order.id.replace(/-/g, '').slice(0, 20);
+  db.prepare('UPDATE orders SET ecpay_trade_no = ? WHERE id = ?').run(tradeNo, order.id);
+
+  const BASE_URL = process.env.BASE_URL || 'http://localhost:3001';
+  const actionUrl = isProduction() ? PROD_CHECKOUT_URL : STAGE_CHECKOUT_URL;
+
+  const params = {
+    MerchantID:        process.env.ECPAY_MERCHANT_ID,
+    MerchantTradeNo:   tradeNo,
+    MerchantTradeDate: getTaiwanDateString(),
+    PaymentType:       'aio',
+    TotalAmount:       order.total_amount,
+    TradeDesc:         '花卉電商',
+    ItemName:          itemName,
+    ReturnURL:         `${BASE_URL}/api/ecpay/notify`,
+    OrderResultURL:    `${BASE_URL}/api/ecpay/return`,
+    ClientBackURL:     `${BASE_URL}/orders/${order.id}?payment=cancel`,
+    ChoosePayment:     'Credit',
+    EncryptType:       1,
+  };
+
+  const html = generateEcpayForm(params, actionUrl);
+
+  res.json({ data: { html }, error: null, message: '付款表單產生成功' });
 });
 
 /**

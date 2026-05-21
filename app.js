@@ -33,6 +33,8 @@ app.use('/api/admin/orders', require('./src/routes/adminOrderRoutes'));
 app.use('/api/products', require('./src/routes/productRoutes'));
 app.use('/api/cart', require('./src/routes/cartRoutes'));
 app.use('/api/orders', require('./src/routes/orderRoutes'));
+// ECPay callback routes（需 urlencoded 解析 ECPay 的 form POST）
+app.use('/api/ecpay', express.urlencoded({ extended: false }), require('./src/routes/ecpayRoutes'));
 
 // Page Routes
 app.use('/', require('./src/routes/pageRoutes'));

@@ -163,6 +163,14 @@ function seedProducts() {
   insertMany(seedProducts);
 }
 
+function migrateDatabase() {
+  // 加入 ecpay_trade_no 欄位（已存在時 ALTER TABLE 會拋錯，用 try/catch 忽略）
+  try {
+    db.exec('ALTER TABLE orders ADD COLUMN ecpay_trade_no TEXT');
+  } catch (_) {}
+}
+
 initializeDatabase();
+migrateDatabase();
 
 module.exports = db;
